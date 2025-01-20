@@ -1,0 +1,111 @@
+---
+
+- name: Install PostgreSQL 17.2 and configure repository
+  hosts: AnsibleTarget1
+  become: true
+  tasks:
+  
+    - name: Create directory for PostgreSQL
+      file:
+        path: /opt/pgsql/17
+        state: directory
+        mode: '0755' # owner full rights, others to read and execute
+    
+    - name: Check if PostgreSQL GPG key is installed
+      shell: rpm -q gpg-pubkey | grep -q 'pgdg-redhat'
+      register: gpg_check # save shell result in variable
+      ignore_errors: true # if key not installed, play won't crash
+
+    - name: Install PostgreSQL repository
+      dnf:
+        name: https://download.postgresql.org/pub/repos/yum/reporpms/EL-8-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+        state: present
+        disable_gpg_check: true
+    
+    - name: Install PostgreSQL 17.2 packages
+      dnf:
+        name: 
+          - postgresql17
+          - postgresql17-server
+          - postgresql17-contrib
+        state: present
+    
+    - name: Change ownership of PostgreSQL direcory
+      file:
+        path: /opt/pgsql/17
+        owner: postgres
+        group: postgres
+        recurse: yes
+    
+    - name: Create systemd override directory for PostgreSQL
+      file:
+        path: /etc/systemd/system/postgresql-17.service.d
+        state: directory
+        mode: '0755'
+    
+    - name: Set custom PGDATA in systemd override
+      copy: 
+        content: |
+          [Service]
+          Environment=PGDATA=/opt/pgsql/17/data
+        dest: /etc/systemd/system/postgresql-17.service.d/override.conf
+        mode: '0644' # owner full rights, others to read
+      
+    - name: Reload systemd daemon to apply changes
+      systemd:
+        daemon_reload: true
+    
+    - name: Initialize PostgreSQL database with custom data directory
+      shell: |
+              export PGSETUP_INITDB_OPTIONS="--data-checksums --pgdata=/opt/pgsql/17/data"
+              export PGDATA=/opt/pgsql/17/data
+              /usr/pgsql-17/bin/postgresql-17-setup initdb
+      args:
+          executable: /bin/bash
+          creates: /opt/pgsql/17/data/PG_VERSION
+      become_user: postgres
+    
+    - name: Add IP to pg_hba.conf
+      lineinfile:
+        path: /opt/pgsql/17/data/pg_hba.conf
+        line: "host    all             all             192.168.0.195/32            scram-sha-256"
+        insertafter: EOF
+        create: true # if file not exist, create it
+    
+    - name: Reload PostgreSQL configuration
+      systemd:
+        name: postgresql-17
+        state: reloaded
+      
+    - name: Enable and start PostgreSQL service
+      systemd:
+        name: postgresql-17
+        enabled: true
+        state: started
+
+    - name: Start firewall and allow PostgreSQL service
+      firewalld:
+        service: postgresql
+        permanent: yes
+        state: enabled
+
+    - name: Reload firewall to apply changes
+      command: firewall-cmd --reload
+      become: true
+
+    - name: Check PostgreSQL service status
+      systemd:
+        name: postgresql-17
+        state: started
+        enabled: true
+    
+    - name: Show PostgreSQL logs
+      shell: journalctl -u postgresql-17 --since "1 hour ago"
+      register: postgres_logs # save result in variable
+      changed_when: false
+
+    - name: Show PostgreSQL logs on screen
+      debug:
+        var: postgres_logs.stdout
+    
+    
