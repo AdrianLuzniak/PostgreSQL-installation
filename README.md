@@ -59,7 +59,7 @@ all:
           ansible_become_pass: <YOUR_ROOT_PASSWORD>
 ```
 
-## Playbook Execution
+## Playbook Configuration
 By default, the playbook runs only on `AnsibleTarget1`. If you want to run the playbook on a different host or set of hosts, modify the target host(s) in the corresponding task. To change the target, update the `hosts` parameter in the following task:
 
 ```yaml
@@ -78,6 +78,39 @@ Additionally, in the task where the IP is added to **pg_hba.conf**, make sure to
     create: true
 ```
 
+#### Steps to configure internal-sftp on target machine
+To avoid warnings such as:
+```bash
+[WARNING]: sftp transfer mechanism failed on [192.168.0.133]. Use ANSIBLE_DEBUG=1 to see detailed information
+[WARNING]: scp transfer mechanism failed on [192.168.0.133]. Use ANSIBLE_DEBUG=1 to see detailed information
+```
+
+You must configure the target machine to use `internal-sftp` in the `sshd_config` file.
+
+
+1. Open the SSH configuration file on the target machine:
+```bash
+sudo vim /etc/ssh/sshd_config
+```
+2. Locate the `Subsystem sftp` line, usually it looks like this:
+```bash
+Subsystem       sftp    /usr/libexec/openssh/sftp-server
+```
+
+and modify it as follows:
+
+```bash
+Subsystem sftp internal-sftp
+```
+
+3. Save the file and exit the editor.
+
+4. Restart the SSH service to apply changes
+```bash
+sudo systemctl restart sshd
+```
+
+## Playbook execution
 To execute the playbook, use the following command:
 ```bash
 ansible-playbook -i inventory.yml playbooks/install_postgresql.yml
